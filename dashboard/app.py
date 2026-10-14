@@ -1077,8 +1077,12 @@ else:
 col_header_left, col_header_right = st.columns([0.68, 0.32])
 
 with col_header_left:
+    logo_data_uri = load_brand_logo(st.session_state.theme)
+    logo_img_tag = f'<img src="{logo_data_uri}" class="ys-header-logo" alt="YellowSense" />' if logo_data_uri else f'<span style="font-size: 20px; font-weight: 900; letter-spacing: 1px; color: {current_theme["accent"]};">YELLOWSENSE</span>'
     st.markdown(f"""
     <div class="ys-header-left">
+        {logo_img_tag}
+        <div class="ys-header-divider"></div>
         <div>
             <div class="ys-header-title">
                 AI-NATIVE MOBILITY INTELLIGENCE
@@ -1425,7 +1429,7 @@ with tab_live:
             x=[latest_event["x"]],
             y=[latest_event["y"] - 185],
             mode="text",
-            text=[f"<b>{speed_kmh} km/h &bull; {network_speed_mbps} Mbps</b>"],
+            text=[f"<b>{speed_kmh} km/h • {network_speed_mbps} Mbps</b>"],
             textposition="bottom center",
             textfont=dict(color=current_theme['text_primary'], size=11, family="Inter"),
             name=f"{speed_kmh} km/h | {network_speed_mbps} Mbps",
@@ -1439,7 +1443,7 @@ with tab_live:
                 f"Heading: <b>{latest_event['heading']:.0f}°</b><br>"
                 f"Predicted Target: <b>{latest_event['predicted_cell']}</b>"
             ),
-            showlegend=True,
+            showlegend=False,
         ))
 
         fig_map.update_layout(
@@ -1751,17 +1755,21 @@ with tab_eval:
     col_fig1, col_fig2 = st.columns(2)
     with col_fig1:
         st.markdown(f"<div style='font-size: 12.5px; font-weight: 700; color: {current_theme['text_primary']}; margin-bottom: 6px;'>Next-Cell Confusion Matrix</div>", unsafe_allow_html=True)
-        cm_fig_path = os.path.join("artifacts", "figures", "confusion_matrix.png")
+        cm_fig_path = os.path.join(os.path.dirname(__file__), "..", "artifacts", "figures", "confusion_matrix.png")
         if os.path.exists(cm_fig_path):
-            st.image(cm_fig_path, use_container_width=True)
+            with open(cm_fig_path, "rb") as f:
+                b64_cm = base64.b64encode(f.read()).decode("utf-8")
+            st.markdown(f'<img src="data:image/png;base64,{b64_cm}" style="width:100%; border-radius:8px; border:1px solid {current_theme["border"]}; background-color: #FFFFFF;" alt="Confusion Matrix" />', unsafe_allow_html=True)
         else:
             st.info("Run `python scripts/evaluate.py` to generate figures.")
 
     with col_fig2:
         st.markdown(f"<div style='font-size: 12.5px; font-weight: 700; color: {current_theme['text_primary']}; margin-bottom: 6px;'>Reliability Diagram (Platt Calibration)</div>", unsafe_allow_html=True)
-        calib_fig_path = os.path.join("artifacts", "figures", "calibration_curve.png")
+        calib_fig_path = os.path.join(os.path.dirname(__file__), "..", "artifacts", "figures", "calibration_curve.png")
         if os.path.exists(calib_fig_path):
-            st.image(calib_fig_path, use_container_width=True)
+            with open(calib_fig_path, "rb") as f:
+                b64_calib = base64.b64encode(f.read()).decode("utf-8")
+            st.markdown(f'<img src="data:image/png;base64,{b64_calib}" style="width:100%; border-radius:8px; border:1px solid {current_theme["border"]}; background-color: #FFFFFF;" alt="Reliability Diagram" />', unsafe_allow_html=True)
         else:
             st.info("Run `python scripts/evaluate.py` to generate figures.")
 
