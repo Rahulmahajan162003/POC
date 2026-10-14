@@ -1,5 +1,9 @@
 import os
 import sys
+import io
+import math
+import wave
+import struct
 import json
 import yaml
 import time
@@ -9,6 +13,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Add workspace root to python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -138,6 +143,240 @@ def load_brand_logo(theme_mode: str) -> str:
             b64_data = base64.b64encode(f.read()).decode("utf-8")
         return f"data:image/png;base64,{b64_data}"
     return ""
+
+
+def get_car_svg_b64(heading_deg: float, is_divergent: bool = False) -> str:
+    """Generates a medium-sized top-down vehicle SVG rotated to the exact vehicle heading."""
+    svg_rotation = -heading_deg
+    car_color = "#EF4444" if is_divergent else "#2563EB"
+    roof_color = "#991B1B" if is_divergent else "#1D4ED8"
+    accent = "#FCA5A5" if is_divergent else "#93C5FD"
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-70 -45 140 90" width="140" height="90">
+        <g transform="rotate({svg_rotation})">
+            <!-- Drop shadow -->
+            <ellipse cx="0" cy="5" rx="52" ry="26" fill="rgba(0,0,0,0.35)"/>
+            
+            <!-- Wheels / Tires -->
+            <rect x="-38" y="-28" width="18" height="9" rx="3" fill="#0F172A" stroke="#334155" stroke-width="1.5"/>
+            <rect x="20" y="-28" width="18" height="9" rx="3" fill="#0F172A" stroke="#334155" stroke-width="1.5"/>
+            <rect x="-38" y="19" width="18" height="9" rx="3" fill="#0F172A" stroke="#334155" stroke-width="1.5"/>
+            <rect x="20" y="19" width="18" height="9" rx="3" fill="#0F172A" stroke="#334155" stroke-width="1.5"/>
+
+            <!-- Car Aerodynamic Body -->
+            <path d="M -46,-18 
+                     C -48,-10 -48,10 -46,18 
+                     C -38,22 -20,22 -8,22 
+                     C 12,22 34,20 44,14 
+                     C 48,10 48,-10 44,-14 
+                     C 34,-20 12,-22 -8,-22 
+                     C -20,-22 -38,-22 -46,-18 Z" 
+                  fill="{car_color}" stroke="#FFFFFF" stroke-width="2.5"/>
+
+            <!-- Front Windshield -->
+            <path d="M 12,-14 C 18,-14 26,-10 28,-7 L 28,7 C 26,10 18,14 12,14 C 9,9 9,-9 12,-14 Z" 
+                  fill="#0F172A" stroke="{accent}" stroke-width="1.5"/>
+            
+            <!-- Cabin Roof -->
+            <rect x="-18" y="-14" width="28" height="28" rx="5" fill="{roof_color}" stroke="{accent}" stroke-width="1.5"/>
+            
+            <!-- Rear Window -->
+            <path d="M -28,-11 C -24,-11 -20,-12 -18,-12 L -18,12 C -20,12 -24,11 -28,11 C -30,7 -30,-7 -28,-11 Z" 
+                  fill="#0F172A" stroke="{accent}" stroke-width="1.5"/>
+
+            <!-- Side Windows -->
+            <rect x="-14" y="-12.5" width="22" height="3" rx="1" fill="#0F172A"/>
+            <rect x="-14" y="9.5" width="22" height="3" rx="1" fill="#0F172A"/>
+
+            <!-- Headlights (Bright Yellow Beam) -->
+            <polygon points="43,-11 47,-8 43,-5" fill="#FACC15" stroke="#FEF08A" stroke-width="1"/>
+            <polygon points="43,5 47,8 43,11" fill="#FACC15" stroke="#FEF08A" stroke-width="1"/>
+
+            <!-- Tail LEDs (Red) -->
+            <rect x="-47" y="-15" width="3" height="6" rx="1" fill="#EF4444"/>
+            <rect x="-47" y="9" width="3" height="6" rx="1" fill="#EF4444"/>
+
+            <!-- 5G Telemetry Antenna Dome on Roof -->
+            <circle cx="2" cy="0" r="3.5" fill="#F59E0B" stroke="#FFFFFF" stroke-width="1.5"/>
+            <circle cx="2" cy="0" r="1.5" fill="#FFFFFF"/>
+        </g>
+    </svg>'''
+    b64_data = base64.b64encode(svg.encode("utf-8")).decode("utf-8")
+    return f"data:image/svg+xml;base64,{b64_data}"
+
+
+def generate_alert_beep_wav(sample_rate: int = 44100) -> str:
+    """Loads the authentic 2-pulse divergence alert WAV, or synthesizes it if missing."""
+    alert_path = os.path.join(os.path.dirname(__file__), "..", "assets", "divergence_alert.wav")
+    if os.path.exists(alert_path):
+        with open(alert_path, "rb") as f:
+            b64_audio = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:audio/wav;base64,{b64_audio}"
+
+    # Pure Python synthesis fallback: 2 alert beep pulses (matching user uploaded sound signature)
+    buf = io.BytesIO()
+    beep_dur = 0.40
+    gap_dur = 0.35
+    total_dur = beep_dur * 2 + gap_dur
+
+    with wave.open(buf, 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+        num_beep_samples = int(beep_dur * sample_rate)
+        num_gap_samples = int(gap_dur * sample_rate)
+
+        for pulse in range(2):
+            for i in range(num_beep_samples):
+                t = float(i) / sample_rate
+                # Acoustic signature: 1290Hz fundamental + 2060Hz & 1540Hz overtones
+                f1 = math.sin(2.0 * math.pi * 1290.0 * t)
+                f2 = 0.70 * math.sin(2.0 * math.pi * 2060.0 * t)
+                f3 = 0.55 * math.sin(2.0 * math.pi * 1540.0 * t)
+                f4 = 0.35 * math.sin(2.0 * math.pi * 1030.0 * t)
+                raw = (f1 + f2 + f3 + f4) / 2.60
+
+                # Envelope: smooth 12ms attack and 20ms decay
+                attack = min(1.0, i / (0.012 * sample_rate))
+                decay = min(1.0, (num_beep_samples - i) / (0.020 * sample_rate))
+                sample_val = 0.90 * attack * decay * raw
+                int_val = int(max(-32767, min(32767, sample_val * 32767.0)))
+                frames.extend(struct.pack('<h', int_val))
+
+            if pulse == 0:
+                # Silence gap between the 2 beeps
+                frames.extend(b'\x00\x00' * num_gap_samples)
+
+        wav_file.writeframes(frames)
+    b64_audio = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return f"data:audio/wav;base64,{b64_audio}"
+
+
+ALERT_BEEP_WAV_URI = generate_alert_beep_wav()
+
+
+def render_siren_component(force: bool = False, element_id: str = "ys-siren-trigger"):
+    """
+    Renders an audio trigger component that anchors 2-beep alert playback directly to the
+    top-level browser window (window.parent) and top-level document body.
+    Ensures playback of 2 distinct beeps without interruption.
+    """
+    force_js = "true" if force else "false"
+    components.html(
+        f"""
+        <audio id="{element_id}-local" autoplay src="{ALERT_BEEP_WAV_URI}" style="display:none;"></audio>
+        <script>
+            (function() {{
+                try {{
+                    const topWin = window.parent || window;
+                    const topDoc = topWin.document || document;
+                    const now = Date.now();
+                    const forcePlay = {force_js};
+
+                    // Cooldown guard on top window: avoid overlapping within 1.6s (covers 2-beep sequence)
+                    if (!forcePlay && topWin.__ys_last_siren && (now - topWin.__ys_last_siren < 1600)) {{
+                        return;
+                    }}
+                    topWin.__ys_last_siren = now;
+
+                    // Helper to play synthesized 2-beep WebAudio fallback if audio element is blocked
+                    function playWebAudioFallback() {{
+                        try {{
+                            const AudioCtx = topWin.AudioContext || topWin.webkitAudioContext;
+                            if (!AudioCtx) return;
+                            if (!topWin.__ys_audio_ctx || topWin.__ys_audio_ctx.state === 'closed') {{
+                                topWin.__ys_audio_ctx = new AudioCtx();
+                            }}
+                            const ctx = topWin.__ys_audio_ctx;
+                            if (ctx.state === 'suspended') {{
+                                ctx.resume();
+                            }}
+                            const t0 = ctx.currentTime;
+                            // 2 alert beeps matching the vehicle/system warning chime
+                            const beepBeats = [
+                                {{ freq: 1290, start: 0.00, dur: 0.40 }},
+                                {{ freq: 1290, start: 0.75, dur: 0.40 }},
+                            ];
+                            beepBeats.forEach(b => {{
+                                const osc = ctx.createOscillator();
+                                const osc2 = ctx.createOscillator();
+                                const gain = ctx.createGain();
+                                osc.type = 'sine';
+                                osc.frequency.setValueAtTime(b.freq, t0 + b.start);
+                                osc2.type = 'triangle';
+                                osc2.frequency.setValueAtTime(b.freq * 1.597, t0 + b.start);
+                                gain.gain.setValueAtTime(0.001, t0 + b.start);
+                                gain.gain.linearRampToValueAtTime(0.70, t0 + b.start + 0.015);
+                                gain.gain.setValueAtTime(0.70, t0 + b.start + b.dur - 0.03);
+                                gain.gain.exponentialRampToValueAtTime(0.001, t0 + b.start + b.dur);
+                                osc.connect(gain);
+                                osc2.connect(gain);
+                                gain.connect(ctx.destination);
+                                osc.start(t0 + b.start);
+                                osc2.start(t0 + b.start);
+                                osc.stop(t0 + b.start + b.dur);
+                                osc2.stop(t0 + b.start + b.dur);
+                            }});
+                        }} catch(e) {{}}
+                    }}
+
+                    // Persistent HTML5 Audio element on topDoc.body (persists across all Streamlit reruns)
+                    let pAudio = topDoc.getElementById("ys-persistent-siren");
+                    if (!pAudio) {{
+                        pAudio = topDoc.createElement("audio");
+                        pAudio.id = "ys-persistent-siren";
+                        pAudio.style.display = "none";
+                        topDoc.body.appendChild(pAudio);
+                    }}
+                    pAudio.src = "{ALERT_BEEP_WAV_URI}";
+                    pAudio.volume = 1.0;
+                    pAudio.currentTime = 0;
+                    const playPromise = pAudio.play();
+                    if (playPromise !== undefined) {{
+                        playPromise.catch(function(err) {{
+                            playWebAudioFallback();
+                        }});
+                    }}
+                }} catch(err) {{
+                    // Fallback to local iframe execution if cross-origin boundary exists
+                    try {{
+                        const a = document.getElementById("{element_id}-local");
+                        if (a) {{ a.volume = 1.0; a.play().catch(function(e) {{}}); }}
+                    }} catch(e) {{}}
+                }}
+            }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def render_siren_preloader():
+    """Pre-attaches the persistent audio element so it is cached and pre-buffered in RAM."""
+    components.html(
+        f"""
+        <script>
+            (function() {{
+                try {{
+                    const topWin = window.parent || window;
+                    const topDoc = topWin.document || document;
+                    if (!topDoc.getElementById("ys-persistent-siren")) {{
+                        const pAudio = topDoc.createElement("audio");
+                        pAudio.id = "ys-persistent-siren";
+                        pAudio.src = "{ALERT_BEEP_WAV_URI}";
+                        pAudio.preload = "auto";
+                        pAudio.style.display = "none";
+                        topDoc.body.appendChild(pAudio);
+                    }}
+                }} catch(e) {{}}
+            }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -620,6 +859,8 @@ if "auto_paused_reason" not in st.session_state:
     st.session_state.auto_paused_reason = None
 if "paused_milestones_hit" not in st.session_state:
     st.session_state.paused_milestones_hit = set()
+if "divergence_detected_once" not in st.session_state:
+    st.session_state.divergence_detected_once = False
 
 
 def reset_simulation(scenario_name: str):
@@ -633,6 +874,7 @@ def reset_simulation(scenario_name: str):
     st.session_state.is_running = False
     st.session_state.auto_paused_reason = None
     st.session_state.paused_milestones_hit.clear()
+    st.session_state.divergence_detected_once = False
     policy_engine.reset()
 
 
@@ -700,6 +942,20 @@ with st.sidebar:
         value=True,
         help="Pauses playback automatically upon reaching Proactive Candidate, Route Divergence, or Updated Candidate.",
     )
+    sound_alert_enabled = st.checkbox(
+        "🚨 Audible Alert on Divergence",
+        value=True,
+        help="Plays a 2-pulse alert chime whenever unexpected route divergence occurs.",
+    )
+    if st.button("🚨 Test Alert Sound (2x)", use_container_width=True):
+        st.session_state.trigger_test_beep = True
+
+    render_siren_preloader()
+
+    if st.session_state.get("trigger_test_beep", False):
+        st.session_state.trigger_test_beep = False
+        render_siren_component(force=True, element_id="sidebar-test-siren")
+
     st.session_state.playback_speed = st.slider("Step Interval (s):", 0.05, 1.0, 0.25, 0.05)
 
     st.markdown(f"""
@@ -749,6 +1005,9 @@ def advance_simulation_step():
     inf_res = inference_engine.run_inference(telemetry, recent_history=st.session_state.sim_history)
     unc_res = uncertainty_estimator.evaluate(inf_res["probabilities"])
     decision = policy_engine.evaluate(telemetry, inf_res, unc_res, step_index=step)
+
+    if decision.divergence_detected:
+        st.session_state.divergence_detected_once = True
 
     # Check for Auto-Pause Milestones
     if auto_pause_enabled and st.session_state.is_running:
@@ -813,18 +1072,13 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# 9. Top Application Header with Official Brand Logo & Segmented Theme Control
+# 9. Top Application Header & Segmented Theme Control
 # -----------------------------------------------------------------------------
-logo_data_uri = load_brand_logo(st.session_state.theme)
-
 col_header_left, col_header_right = st.columns([0.68, 0.32])
 
 with col_header_left:
-    logo_img_tag = f'<img src="{logo_data_uri}" class="ys-header-logo" alt="YellowSense" />' if logo_data_uri else f'<span style="font-size: 20px; font-weight: 900; letter-spacing: 1px; color: {current_theme["accent"]};">YELLOWSENSE</span>'
     st.markdown(f"""
     <div class="ys-header-left">
-        {logo_img_tag}
-        <div class="ys-header-divider"></div>
         <div>
             <div class="ys-header-title">
                 AI-NATIVE MOBILITY INTELLIGENCE
@@ -963,7 +1217,10 @@ with tab_live:
         """, unsafe_allow_html=True)
 
     # Dynamic AI State Progression Stepper
-    is_div = latest_event["divergence"]
+    is_div = latest_event["divergence"] or (
+        st.session_state.get("divergence_detected_once", False)
+        and latest_event.get("state") in ["ROUTE_DIVERGENCE", "RE_EVALUATING", "UPDATED_CANDIDATE"]
+    )
     curr_state = latest_event["state"]
 
     predict_done = "✓" if latest_event["step"] >= 1 else "..."
@@ -998,6 +1255,10 @@ with tab_live:
 
     # Hero Event Area (Route Divergence Banner or Structured Policy Card)
     if is_div:
+        # Audible Alert (2x Beep) for Route Divergence
+        if sound_alert_enabled:
+            render_siren_component(force=False, element_id="div-siren")
+
         st.markdown(f"""
         <div class="ys-hero-alert">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -1005,6 +1266,9 @@ with tab_live:
                     <span>ROUTE DIVERGENCE DETECTED</span>
                     <span style="font-size: 11.5px; padding: 2px 8px; border-radius: 4px; background-color: {current_theme['red_bg']}; border: 1px solid {current_theme['red_border']}; color: {current_theme['red']};">
                         PREDICTION NO LONGER RELIABLE
+                    </span>
+                    <span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background-color: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.60); color: {current_theme['red']}; font-weight: 800;">
+                        🚨 AUDIBLE ALERT ACTIVE (2x)
                     </span>
                 </div>
                 <div style="font-size: 12px; font-weight: 800; color: {current_theme['accent']};">
@@ -1059,7 +1323,7 @@ with tab_live:
 
             is_serving = (cid == latest_event["serving_cell"])
             is_predicted = (cid == latest_event["predicted_cell"])
-            is_updated_cand = (cid == latest_event.get("candidate_cell") and latest_event["divergence"])
+            is_updated_cand = (cid == latest_event.get("candidate_cell") and is_div)
 
             if is_serving:
                 fill_color = "rgba(59, 130, 246, 0.15)" if current_theme['mode'] == 'dark' else "rgba(37, 99, 235, 0.12)"
@@ -1129,31 +1393,54 @@ with tab_live:
                 name="Actual UE Trajectory",
             ))
 
-        # Current UE Position
-        ue_marker_color = current_theme['red'] if latest_event["divergence"] else current_theme['green']
+        # Current Vehicle (UE) Position - Enlarged Diagram with Real-Time Speed & Network Throughput
+        car_heading = latest_event.get("heading", 0.0)
+        is_divergent = is_div
+        car_b64_uri = get_car_svg_b64(heading_deg=car_heading, is_divergent=is_divergent)
+
+        # Vehicle kinematics & 5G network throughput holding
+        speed_kmh = int(round(latest_event["speed"] * 3.6))
+        sinr = latest_event.get("serving_sinr", 15.0)
+        sinr_lin = max(0.05, 10.0 ** (sinr / 10.0))
+        network_speed_mbps = int(np.clip(120.0 * math.log2(1.0 + sinr_lin) * 0.75, 45, 960))
+
+        # Enlarged top-down vehicle diagram on the map
+        fig_map.add_layout_image(
+            dict(
+                source=car_b64_uri,
+                x=latest_event["x"],
+                y=latest_event["y"],
+                sizex=520,
+                sizey=520,
+                xanchor="center",
+                yanchor="middle",
+                xref="x",
+                yref="y",
+                layer="above",
+            )
+        )
+
+        # Vehicle label displaying km/h and 5G network speed (replaces Vehicle UE text)
         fig_map.add_trace(go.Scatter(
-            x=[latest_event["x"]], y=[latest_event["y"]],
-            mode="markers+text",
-            marker=dict(size=18, color=ue_marker_color, symbol="circle", line=dict(color="#FFFFFF", width=2.5)),
-            text=["<b>UE</b>"],
+            x=[latest_event["x"]],
+            y=[latest_event["y"] - 185],
+            mode="text",
+            text=[f"<b>{speed_kmh} km/h &bull; {network_speed_mbps} Mbps</b>"],
             textposition="bottom center",
             textfont=dict(color=current_theme['text_primary'], size=11, family="Inter"),
-            name="Current UE Position",
+            name=f"{speed_kmh} km/h | {network_speed_mbps} Mbps",
+            hoverinfo="text",
+            hovertext=(
+                f"<b>Connected 5G Vehicle Telemetry</b><br>"
+                f"Driving Speed: <b>{speed_kmh} km/h</b> ({latest_event['speed']:.1f} m/s)<br>"
+                f"5G Network Speed: <b>{network_speed_mbps} Mbps</b><br>"
+                f"Serving Tower: <b>{latest_event['serving_cell']}</b> (RSRP: {latest_event['serving_rsrp']:.1f} dBm, SINR: {latest_event['serving_sinr']:.1f} dB)<br>"
+                f"Position: ({latest_event['x']:.0f}m, {latest_event['y']:.0f}m)<br>"
+                f"Heading: <b>{latest_event['heading']:.0f}°</b><br>"
+                f"Predicted Target: <b>{latest_event['predicted_cell']}</b>"
+            ),
+            showlegend=True,
         ))
-
-        # Vector Arrow to Predicted Target
-        cand_cell = network.get_cell(latest_event["predicted_cell"])
-        fig_map.add_annotation(
-            x=cand_cell.x, y=cand_cell.y,
-            ax=latest_event["x"], ay=latest_event["y"],
-            xref="x", yref="y", axref="x", ayref="y",
-            text="",
-            showarrow=True,
-            arrowhead=3,
-            arrowsize=1.5,
-            arrowwidth=2.5,
-            arrowcolor=current_theme['green'] if not latest_event["divergence"] else current_theme['red'],
-        )
 
         fig_map.update_layout(
             template=current_theme['plotly_template'],
