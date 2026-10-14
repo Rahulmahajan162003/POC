@@ -1077,12 +1077,8 @@ else:
 col_header_left, col_header_right = st.columns([0.68, 0.32])
 
 with col_header_left:
-    logo_data_uri = load_brand_logo(st.session_state.theme)
-    logo_img_tag = f'<img src="{logo_data_uri}" class="ys-header-logo" alt="YellowSense" />' if logo_data_uri else f'<span style="font-size: 20px; font-weight: 900; letter-spacing: 1px; color: {current_theme["accent"]};">YELLOWSENSE</span>'
     st.markdown(f"""
     <div class="ys-header-left">
-        {logo_img_tag}
-        <div class="ys-header-divider"></div>
         <div>
             <div class="ys-header-title">
                 AI-NATIVE MOBILITY INTELLIGENCE
